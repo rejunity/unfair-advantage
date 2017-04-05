@@ -193,8 +193,9 @@ class Evaluator(object):
             style_feat = features[layer][STYLE, :, :, :]
             output_feat = features[layer][OUTPUT, :, :, :]
             sl = style_loss(style_feat, output_feat)
-            loss += len(style_feature_layers) * sl
+            loss += (1. / len(style_feature_layers)) * sl
 
+        # TODO: try tv_loss only on the first conv layer (suggested in E.Risser paper)
         loss += total_variation_weight * total_variation_loss(output_image)
         loss_grads = K.gradients(loss, output_image)
 
