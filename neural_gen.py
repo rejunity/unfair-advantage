@@ -116,9 +116,8 @@ def gram_matrix(x):
     gram = K.dot(features, K.transpose(features))
     return gram
 
-def region_style_loss(style_image, output_image):
-    '''Calculate style loss between style_image and output_image,
-    for one common region specified by their (boolean) masks
+def style_loss(style_image, output_image):
+    '''Calculate style loss between style_image and output_image
     '''
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
     if K.image_data_format() == 'channels_first':
@@ -134,16 +133,6 @@ def region_style_loss(style_image, output_image):
     s = gram_matrix(style) / K.cast(num_channels, K.floatx())
     c = gram_matrix(output) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
-
-def style_loss(style_image, output_image):
-    '''Calculate style loss between style_image and output_image,
-    in all regions.
-    '''
-    assert 3 == K.ndim(style_image) == K.ndim(output_image)
-    loss = K.variable(0)
-    loss += region_style_loss(style_image, output_image)
-
-    return loss
 
 def total_variation_loss(x):
     assert 4 == K.ndim(x)
