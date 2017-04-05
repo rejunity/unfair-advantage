@@ -266,6 +266,7 @@ for q in range(args.phases):
     #  def __init__(self, output_image, features):
     evaluator = Evaluator(model.output_image, model.features)
 
+    # TODO: move noise initialization out of the loop
     if q == 0:
         # 1st pass
         # Generate images by iterative optimization
