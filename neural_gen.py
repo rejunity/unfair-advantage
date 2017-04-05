@@ -134,6 +134,13 @@ def style_loss(style_image, output_image):
     c = gram_matrix(output) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
 
+# TODO: moments and histogram losses, compare them
+def moments_loss(style_image, output_image):
+    return 0
+
+def histogram_loss(style_image, output_image):
+    return 0
+
 def total_variation_loss(x):
     assert 4 == K.ndim(x)
     if K.image_data_format() == 'channels_first':
