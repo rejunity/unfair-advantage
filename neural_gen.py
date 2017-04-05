@@ -61,8 +61,8 @@ total_variation_weight = args.variation
 style_feature_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
 #style_feature_layers = ['block3_conv1', 'block4_conv1']
 
-# index constants for images and tasks variables
-STYLE, TARGET, CONTENT = 0, 1, 2
+# index constants for input images to VGG net 
+STYLE, TARGET = 0, 1
 
 # helper functions for reading/processing images
 def preprocess_image(image_path, target_size):
@@ -161,7 +161,7 @@ def total_variation_loss(x):
     return K.sum(K.pow(a + b, 1.25))
 
 
-class VGG19Features(object):
+class VGG19FeatureExtractor(object):
 
     def __init__(self, style_image_in, img_nrows, img_ncols, num_colors):
         # Create tensor variables for images
@@ -172,12 +172,11 @@ class VGG19Features(object):
 
         self.style_image = K.variable(preprocess_image(style_image_in, (img_nrows, img_ncols)))
         self.target_image = K.placeholder(shape=shape)
-        self.content_image = K.zeros(shape=shape)
 
-        # see: STYLE, TARGET, CONTENT = 0, 1, 2
-        self.images = K.concatenate([self.style_image, self.target_image, self.content_image], axis=0)
+        # see: STYLE, TARGET = 0, 1
+        self.images = K.concatenate([self.style_image, self.target_image], axis=0)
 
-        # Build image model, mask model and use layer outputs as features
+        # Build image model and use layer outputs as features
         # image model as VGG19
         # self.image_model = vgg19.VGG19(include_top=False, input_tensor=self.images)
         self.image_model = custom_vgg19.myVGG19(include_top=False, input_tensor=self.images)
@@ -261,7 +260,7 @@ for q in range(args.phases):
     print("Pass:", (img_ncols, img_nrows))
 
     # def __init__(self, style_image_in, img_nrows, img_ncols, num_colors):
-    model = VGG19Features(args.style_image, img_nrows, img_ncols, num_colors)
+    model = VGG19FeatureExtractor(args.style_image, img_nrows, img_ncols, num_colors)
 
     #  def __init__(self, target_image, image_features):
     evaluator = Evaluator(model.target_image, model.image_features)
