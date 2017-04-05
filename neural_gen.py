@@ -198,8 +198,8 @@ class Evaluator(object):
         loss += total_variation_weight * total_variation_loss(output_image)
         loss_grads = K.gradients(loss, output_image)
 
-        # Evaluator class for computing efficiency
         outputs = [loss]
+        # TODO: is this still necessary?
         if isinstance(loss_grads, (list, tuple)):
             outputs += loss_grads
         else:
