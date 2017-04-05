@@ -220,8 +220,9 @@ class Evaluator(object):
             grad_values = np.array(outs[1:]).flatten().astype('float64')
         return loss_value, grad_values
 
-    ###                     
+    ###                 
 
+    # TODO: investigate if separating loss and grads here makes any actual performance improvement
     def loss(self, x):
         assert self.loss_value is None
         loss_value, grad_values = self._eval_loss_and_grads(x)
