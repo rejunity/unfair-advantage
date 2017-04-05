@@ -44,7 +44,7 @@ add_arg('--target-size',            default=None, type=str,         help='Size o
 add_arg('--iterations',             default=50, type=int,           help='Number of iterations to run each resolution.')
 add_arg('--seed-range',             default='16:240', type=str,     help='Random colors chosen in range, e.g. 0:255.')
 add_arg('--phases',                 default=3, type=int,            help='Number of image scales to process in phases.')
-add_arg('--variation',              default=50, type=float,         help='todo')
+add_arg('--variation',              default=50, type=float,         help='TODO')
 args = parser.parse_args()
 
 num_iterations = args.iterations
@@ -62,7 +62,7 @@ style_feature_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_
 #style_feature_layers = ['block3_conv1', 'block4_conv1']
 
 # index constants for input images to VGG net 
-STYLE, TARGET = 0, 1
+STYLE, OUTPUT = 0, 1
 
 # helper functions for reading/processing images
 def preprocess_image(image_path, target_size):
@@ -116,33 +116,32 @@ def gram_matrix(x):
     gram = K.dot(features, K.transpose(features))
     return gram
 
-def region_style_loss(style_image, target_image):
-    '''Calculate style loss between style_image and target_image,
+def region_style_loss(style_image, output_image):
+    '''Calculate style loss between style_image and output_image,
     for one common region specified by their (boolean) masks
     '''
-    assert 3 == K.ndim(style_image) == K.ndim(target_image)
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
     if K.image_data_format() == 'channels_first':
         style = style_image
-        target = target_image
+        output = output_image
         num_channels = K.shape(style_image)[0]
     else:
         style = K.permute_dimensions(
             style_image, (2, 0, 1))
-        target = K.permute_dimensions(
-            target_image, (2, 0, 1))
+        output = K.permute_dimensions(
+            output_image, (2, 0, 1))
         num_channels = K.shape(style_image)[-1]
     s = gram_matrix(style) / K.cast(num_channels, K.floatx())
-    c = gram_matrix(target) / K.cast(num_channels, K.floatx())
+    c = gram_matrix(output) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
 
-def style_loss(style_image, target_image):
-    '''Calculate style loss between style_image and target_image,
+def style_loss(style_image, output_image):
+    '''Calculate style loss between style_image and output_image,
     in all regions.
     '''
-    assert 3 == K.ndim(style_image) == K.ndim(target_image)
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
     loss = K.variable(0)
-    loss += region_style_loss(style_image,
-                              target_image)
+    loss += region_style_loss(style_image, output_image)
 
     return loss
 
@@ -171,42 +170,44 @@ class VGG19FeatureExtractor(object):
             shape = (1, img_nrows, img_ncols, num_colors)
 
         self.style_image = K.variable(preprocess_image(style_image_in, (img_nrows, img_ncols)))
-        self.target_image = K.placeholder(shape=shape)
+        self.output_image = K.placeholder(shape=shape)
 
-        # see: STYLE, TARGET = 0, 1
-        self.images = K.concatenate([self.style_image, self.target_image], axis=0)
+        # see: STYLE, OUTPUT = 0, 1
+        self.images = K.concatenate([self.style_image, self.output_image], axis=0)
 
         # Build image model and use layer outputs as features
         # image model as VGG19
-        # self.image_model = vgg19.VGG19(include_top=False, input_tensor=self.images)
-        self.image_model = custom_vgg19.myVGG19(include_top=False, input_tensor=self.images)
+        # self.model = vgg19.VGG19(include_top=False, input_tensor=self.images)
+        self.model = custom_vgg19.myVGG19(include_top=False, input_tensor=self.images)
 
-        # Collect features from image_model
-        self.image_features = {}
-        for img_layer in self.image_model.layers:
+        # Collect features from model
+        self.features = {}
+        for img_layer in self.model.layers:
             if 'conv' in img_layer.name:
                 layer_name = img_layer.name
                 img_feat = img_layer.output
-                self.image_features[layer_name] = img_feat
+                self.features[layer_name] = img_feat
 
+    # TODO: separate Style (do it only once) and Output feature extraction - check performance
+    # TODO: evaluate only necessary (or strip away unnecessary) layers for Evaluator (and their sources) - check performance
 
 class Evaluator(object):
 
-    def __init__(self, target_image, image_features):
+    def __init__(self, output_image, features):
         self.loss_value = None
         self.grads_values = None
 
-        # Overall loss is the weighted sum of content_loss, style_loss and tv_loss
-        # Each individual loss uses features from image/mask models.
+        # Overall loss is the weighted sum of style_loss and tv_loss
+        # Each individual loss uses features from image models.
         loss = K.variable(0)
         for layer in style_feature_layers:
-            style_feat = image_features[layer][STYLE, :, :, :]
-            target_feat = image_features[layer][TARGET, :, :, :]
-            sl = style_loss(style_feat, target_feat)
+            style_feat = features[layer][STYLE, :, :, :]
+            output_feat = features[layer][OUTPUT, :, :, :]
+            sl = style_loss(style_feat, output_feat)
             loss += len(style_feature_layers) * sl
 
-        loss += total_variation_weight * total_variation_loss(target_image)
-        loss_grads = K.gradients(loss, target_image)
+        loss += total_variation_weight * total_variation_loss(output_image)
+        loss_grads = K.gradients(loss, output_image)
 
         # Evaluator class for computing efficiency
         outputs = [loss]
@@ -215,7 +216,7 @@ class Evaluator(object):
         else:
             outputs.append(loss_grads)
 
-        self.f_outputs = K.function([target_image], outputs)   
+        self.f_outputs = K.function([output_image], outputs)   
 
     def eval_loss_and_grads(self, x):
         if K.image_data_format() == 'channels_first':
@@ -262,8 +263,8 @@ for q in range(args.phases):
     # def __init__(self, style_image_in, img_nrows, img_ncols, num_colors):
     model = VGG19FeatureExtractor(args.style_image, img_nrows, img_ncols, num_colors)
 
-    #  def __init__(self, target_image, image_features):
-    evaluator = Evaluator(model.target_image, model.image_features)
+    #  def __init__(self, output_image, features):
+    evaluator = Evaluator(model.output_image, model.features)
 
     if q == 0:
         # 1st pass
