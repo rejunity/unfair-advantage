@@ -207,7 +207,7 @@ class Evaluator(object):
 
         self.f_outputs = K.function([output_image], outputs)   
 
-    def eval_loss_and_grads(self, x):
+    def _eval_loss_and_grads(self, x):
         if K.image_data_format() == 'channels_first':
             x = x.reshape((1, 3, img_nrows, img_ncols))
         else:
@@ -224,7 +224,7 @@ class Evaluator(object):
 
     def loss(self, x):
         assert self.loss_value is None
-        loss_value, grad_values = self.eval_loss_and_grads(x)
+        loss_value, grad_values = self._eval_loss_and_grads(x)
         self.loss_value = loss_value
         self.grad_values = grad_values
         return self.loss_value
