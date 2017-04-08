@@ -116,7 +116,7 @@ def gram_matrix(x):
     gram = K.dot(features, K.transpose(features))
     return gram
 
-def style_loss(style_image, output_image):
+def gramm_loss(style_image, output_image):
     '''Calculate style loss between style_image and output_image
     '''
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
@@ -140,6 +140,9 @@ def moments_loss(style_image, output_image):
 
 def histogram_loss(style_image, output_image):
     return 0
+
+def style_loss(style_image, output_image):
+    return gram_loss(style_image, output_image)
 
 def total_variation_loss(x):
     assert 4 == K.ndim(x)
