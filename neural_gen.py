@@ -45,6 +45,7 @@ add_arg('--iterations',             default=50, type=int,           help='Number
 add_arg('--seed-range',             default='16:240', type=str,     help='Random colors chosen in range, e.g. 0:255.')
 add_arg('--phases',                 default=3, type=int,            help='Number of image scales to process in phases.')
 add_arg('--variation',              default=50, type=float,         help='TODO')
+add_arg('--loss',                   default='gramm', type=str,      help='TODO')
 args = parser.parse_args()
 
 num_iterations = args.iterations
@@ -134,7 +135,16 @@ def gramm_loss(style_image, output_image):
     c = gram_matrix(output) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
 
-# TODO: moments and histogram losses, compare them
+def L2_loss(style_image, output_image):
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
+    s = K.batch_flatten(style_image)
+    c = K.batch_flatten(output_image)
+    return K.sum(K.square(s - c))
+
+# TODO: MRF, moments and histogram losses, compare them
+def mrf_loss(style_image, output_image):
+    return 0
+
 def moments_loss(style_image, output_image):
     return 0
 
@@ -142,7 +152,12 @@ def histogram_loss(style_image, output_image):
     return 0
 
 def style_loss(style_image, output_image):
-    return gram_loss(style_image, output_image)
+    if args.loss=='gramm':
+        return gramm_loss(style_image, output_image)
+    elif args.loss=='L2' or args.loss=='copy':
+        return L2_loss(style_image, output_image)
+    else:
+        return gramm_loss(style_image, output_image)
 
 def total_variation_loss(x):
     assert 4 == K.ndim(x)
