@@ -174,7 +174,8 @@ class VGG19FeatureExtractor(object):
         # Build image model and use layer outputs as features
         # image model as VGG19
         # self.model = vgg19.VGG19(include_top=False, input_tensor=self.images)
-        self.model = custom_vgg19.myVGG19(include_top=False, input_tensor=self.images)
+        self.model = custom_vgg19.myVGG19(include_top=False, input_tensor=self.images,
+            conv_activation='relu', conv_pooling='max')
 
         # Collect features from model
         self.features = {}

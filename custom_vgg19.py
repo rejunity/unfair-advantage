@@ -32,8 +32,9 @@ WEIGHTS_PATH_NO_TOP = 'https://github.com/fchollet/deep-learning-models/releases
 
 def myVGG19(include_top=True, weights='imagenet',
           input_tensor=None, input_shape=None,
-          pooling=None,
-          classes=1000):
+          top_pooling=None,
+          classes=1000,
+          conv_activation="relu", conv_pooling="max"):
     """Instantiates the VGG19 architecture.
     Optionally loads weights pre-trained
     on ImageNet. Note that when using TensorFlow,
@@ -58,7 +59,7 @@ def myVGG19(include_top=True, weights='imagenet',
             It should have exactly 3 inputs channels,
             and width and height should be no smaller than 48.
             E.g. `(200, 200, 3)` would be one valid value.
-        pooling: Optional pooling mode for feature extraction
+        top_pooling: Optional pooling mode for feature extraction
             when `include_top` is `False`.
             - `None` means that the output of the model will be
                 the 4D tensor output of the
@@ -72,6 +73,13 @@ def myVGG19(include_top=True, weights='imagenet',
         classes: optional number of classes to classify images
             into, only to be specified if `include_top` is True, and
             if no `weights` argument is specified.
+
+        conv_activation: activation function for convolutional layers
+        conv_pooling: pooling mode for convolutional layers
+            - `avg`
+            - `max`
+            - `strided` means strided convolutional
+                NOTE: currently works only with weights=None
     # Returns
         A Keras model instance.
     # Raises
@@ -101,21 +109,15 @@ def myVGG19(include_top=True, weights='imagenet',
         else:
             img_input = input_tensor
 
-    a = 'relu'
-    hpooling = 'max'
+    a = conv_activation
 
-    #a = 'elu'
-    #hpooling = 'avg'
-
-    #hpooling = 'strided'
-    #weights = None
 
     # Block 1
     x = Conv2D(64, (3, 3), activation=a, padding='same', name='block1_conv1')(img_input)
     x = Conv2D(64, (3, 3), activation=a, padding='same', name='block1_conv2')(x)
-    if hpooling=='strided':
+    if conv_pooling=='strided':
         x = Conv2D(128, (2, 2), strides=(2, 2), activation=a, padding='same', name='block1_pool')(x)
-    elif hpooling=='avg':
+    elif conv_pooling=='avg':
         x = AveragePooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
     else:
         x = MaxPooling2D((2, 2), strides=(2, 2), name='block1_pool')(x)
@@ -123,9 +125,9 @@ def myVGG19(include_top=True, weights='imagenet',
     # Block 2
     x = Conv2D(128, (3, 3), activation=a, padding='same', name='block2_conv1')(x)
     x = Conv2D(128, (3, 3), activation=a, padding='same', name='block2_conv2')(x)
-    if hpooling=='strided':
+    if conv_pooling=='strided':
         x = Conv2D(256, (2, 2), strides=(2, 2), activation=a, padding='same', name='block2_pool')(x)
-    elif hpooling=='avg':
+    elif conv_pooling=='avg':
         x = AveragePooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
     else:
         x = MaxPooling2D((2, 2), strides=(2, 2), name='block2_pool')(x)
@@ -135,9 +137,9 @@ def myVGG19(include_top=True, weights='imagenet',
     x = Conv2D(256, (3, 3), activation=a, padding='same', name='block3_conv2')(x)
     x = Conv2D(256, (3, 3), activation=a, padding='same', name='block3_conv3')(x)
     x = Conv2D(256, (3, 3), activation=a, padding='same', name='block3_conv4')(x)
-    if hpooling=='strided':
+    if conv_pooling=='strided':
         x = Conv2D(512, (2, 2), strides=(2, 2), activation=a, padding='same', name='block3_pool')(x)
-    elif hpooling=='avg':
+    elif conv_pooling=='avg':
         x = AveragePooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
     else:
         x = MaxPooling2D((2, 2), strides=(2, 2), name='block3_pool')(x)
@@ -147,9 +149,9 @@ def myVGG19(include_top=True, weights='imagenet',
     x = Conv2D(512, (3, 3), activation=a, padding='same', name='block4_conv2')(x)
     x = Conv2D(512, (3, 3), activation=a, padding='same', name='block4_conv3')(x)
     x = Conv2D(512, (3, 3), activation=a, padding='same', name='block4_conv4')(x)
-    if hpooling=='strided':
+    if conv_pooling=='strided':
         x = Conv2D(512, (2, 2), strides=(2, 2), activation=a, padding='same', name='block4_pool')(x)
-    elif hpooling=='avg':
+    elif conv_pooling=='avg':
         x = AveragePooling2D((2, 2), strides=(2, 2), name='block4_pool')(x)
     else:
         x = MaxPooling2D((2, 2), strides=(2, 2), name='block4_pool')(x)
@@ -159,9 +161,9 @@ def myVGG19(include_top=True, weights='imagenet',
     x = Conv2D(512, (3, 3), activation=a, padding='same', name='block5_conv2')(x)
     x = Conv2D(512, (3, 3), activation=a, padding='same', name='block5_conv3')(x)
     x = Conv2D(512, (3, 3), activation=a, padding='same', name='block5_conv4')(x)
-    if hpooling=='strided':
+    if conv_pooling=='strided':
         x = Conv2D(512, (2, 2), strides=(2, 2), activation=a, padding='same', name='block5_pool')(x)
-    elif hpooling=='avg':
+    elif conv_pooling=='avg':
         x = AveragePooling2D((2, 2), strides=(2, 2), name='block5_pool')(x)
     else:
         x = MaxPooling2D((2, 2), strides=(2, 2), name='block5_pool')(x)
@@ -173,9 +175,9 @@ def myVGG19(include_top=True, weights='imagenet',
         x = Dense(4096, activation=a, name='fc2')(x)
         x = Dense(classes, activation='softmax', name='predictions')(x)
     else:
-        if pooling == 'avg':
+        if top_pooling == 'avg':
             x = GlobalAveragePooling2D()(x)
-        elif pooling == 'max':
+        elif top_pooling == 'max':
             x = GlobalMaxPooling2D()(x)
 
     # Ensure that the model takes into account
