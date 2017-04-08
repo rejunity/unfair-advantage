@@ -46,6 +46,8 @@ add_arg('--seed-range',             default='16:240', type=str,     help='Random
 add_arg('--phases',                 default=3, type=int,            help='Number of image scales to process in phases.')
 add_arg('--variation',              default=50, type=float,         help='TODO')
 add_arg('--loss',                   default='gramm', type=str,      help='TODO')
+add_arg('--style-layers',           default='1_1,2_1,3_1,4_1,5_1',
+                                                     type=str, help='TODO')
 args = parser.parse_args()
 
 num_iterations = args.iterations
@@ -59,8 +61,13 @@ img_nrows, img_ncols = target_size
 total_variation_weight = args.variation
 
 # To get better generation qualities, use more conv layers for style features
-style_feature_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
-#style_feature_layers = ['block3_conv1', 'block4_conv1']
+style_feature_layers = []
+if args.style_layers is None:
+    style_feature_layers = ['block1_conv1', 'block2_conv1', 'block3_conv1', 'block4_conv1', 'block5_conv1']
+else:
+    for layer in args.style_layers.split(','):
+        layer_indices = [int(i) for i in layer.split('_')]
+        style_feature_layers.append('block%d_conv%d' % (layer_indices[0], layer_indices[1]))
 
 # index constants for input images to VGG net 
 STYLE, OUTPUT = 0, 1
