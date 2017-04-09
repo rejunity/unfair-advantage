@@ -124,6 +124,99 @@ def deprocess_image_partially(x):
     x = np.clip(x, 0, 255).astype('uint8')
     return x
 
+# MRF patch functions
+def patch(x, ksize=3, stride=1):
+    assert K.ndim(x) == 3
+
+    w = K.eye(ch * ksize * ksize, dtype=np.float32)
+    if K.image_data_format() == 'channels_first':
+        ch = K.shape(x)[0]
+        w = w.reshape((ch * ksize * ksize, ch, ksize, ksize))
+    else:
+        ch = K.shape(x)[-1]
+        w = w.reshape((ch * ksize * ksize, ksize, ksize, ch))
+    
+    return K.conv2d(x, kernel=w, strides=stride)
+
+def make_patches(x, patch_size, patch_stride):
+    '''Break image `x` up into a bunch of patches.'''
+
+    # TODO: remove dependency on Theano
+    import theano as T
+    from theano.tensor.nnet.neighbours import images2neibs
+    if K.image_data_format() == 'channels_first':
+        ch = K.shape(x)[0]
+        x = K.expand_dims(x, 0)
+    else:
+        ch = K.shape(x)[-1]
+        x = K.permute_dimensions(x, (2, 0, 1))
+        x = K.expand_dims(x, 0)
+
+    patches = images2neibs(x,
+        (patch_size, patch_size), (patch_stride, patch_stride),
+        mode='valid')
+    # neibs are sorted per-channel
+    patches = K.reshape(patches, (ch, K.shape(patches)[0] // ch, patch_size, patch_size))
+    if K.image_data_format() == 'channels_first':
+        patches = K.permute_dimensions(patches, (1, 0, 2, 3))
+    else:
+        patches = K.permute_dimensions(patches, (1, 2, 3, 0))
+    patches_norm = K.sqrt(K.sum(K.square(patches), axis=(1,2,3), keepdims=True))
+    return patches, patches_norm
+
+'''
+def make_patches_grid(x, patch_size, patch_stride):
+    #Break image `x` up into a grid of patches.
+    #input shape: (channels, rows, cols)
+    #output shape: (rows, cols, channels, patch_rows, patch_cols)
+
+    from theano.tensor.nnet.neighbours import images2neibs  # TODO: all K, no T
+    x = K.expand_dims(x, 0)
+    xs = K.shape(x)
+    num_rows = 1 + (xs[-2] - patch_size) // patch_stride
+    num_cols = 1 + (xs[-1] - patch_size) // patch_stride
+    num_channels = xs[-3]
+    patches = images2neibs(x,
+        (patch_size, patch_size), (patch_stride, patch_stride),
+        mode='valid')
+    # neibs are sorted per-channel
+    patches = K.reshape(patches, (num_channels, K.shape(patches)[0] // num_channels, patch_size, patch_size))
+    patches = K.permute_dimensions(patches, (1, 0, 2, 3))
+    # arrange in a 2d-grid (rows, cols, channels, px, py)
+    patches = K.reshape(patches, (num_rows, num_cols, num_channels, patch_size, patch_size))
+    patches_norm = K.sqrt(K.sum(K.square(patches), axis=(2,3,4), keepdims=True))
+    return patches, patches_norm
+'''
+def find_patch_matches(a, a_norm, b):
+    '''For each patch in A, find the best matching patch in B'''
+    convs = None
+    if K.backend() == 'theano':
+        # HACK: This was not being performed on the GPU for some reason.
+        from theano.sandbox.cuda import dnn
+        if dnn.dnn_available():
+            convs = dnn.dnn_conv(
+                img=a, kerns=b[:, :, ::-1, ::-1], border_mode='valid')
+    if convs is None:
+        if K.image_data_format() == 'channels_first':
+            convs = K.conv2d(a, b[:, :, ::-1, ::-1])
+        else:
+            convs = K.conv2d(a, b[:, ::-1, ::-1, :])
+
+    argmax = K.argmax(convs / a_norm, axis=1)
+    return argmax
+
+def mrf_loss(source, combination, patch_size=3, patch_stride=1):
+    '''CNNMRF http://arxiv.org/pdf/1601.04589v1.pdf'''
+    # extract patches from feature maps
+    assert 3 == K.ndim(source) == K.ndim(combination)
+
+    combination_patches, combination_patches_norm = make_patches(combination, patch_size, patch_stride)
+    source_patches, source_patches_norm = make_patches(source, patch_size, patch_stride)
+    # find best patches and calculate loss
+    patch_ids = find_patch_matches(combination_patches, combination_patches_norm, source_patches / source_patches_norm)
+    best_source_patches = K.reshape(source_patches[patch_ids], K.shape(combination_patches))
+    loss = K.sum(K.square(best_source_patches - combination_patches)) / patch_size ** 2
+    return loss
 
 # Define loss functions
 def gram_matrix(x):
@@ -156,10 +249,7 @@ def L2_loss(style_image, output_image):
     c = K.batch_flatten(output_image)
     return K.sum(K.square(s - c))
 
-# TODO: MRF, moments and histogram losses, compare them
-def mrf_loss(style_image, output_image):
-    return 0
-
+# TODO: moments and histogram losses, compare them
 def moments_loss(style_image, output_image):
     return 0
 
@@ -171,6 +261,8 @@ def style_loss(style_image, output_image):
         return gramm_loss(style_image, output_image)
     elif args.loss=='L2' or args.loss=='copy':
         return L2_loss(style_image, output_image)
+    elif args.loss=='mrf':
+        return mrf_loss(style_image, output_image)
     else:
         return gramm_loss(style_image, output_image)
 
