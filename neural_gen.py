@@ -98,9 +98,17 @@ def deprocess_image(x):
 
 def preprocess_image_partially(x):
     x = img_to_array(x)
-    x[:, :, 0] -= 103.939
-    x[:, :, 1] -= 116.779
-    x[:, :, 2] -= 123.68    
+    x = np.expand_dims(x, axis=0)
+    if K.image_data_format() == 'channels_first':
+        # Zero-center by mean pixel
+        x[:, 0, :, :] -= 103.939
+        x[:, 1, :, :] -= 116.779
+        x[:, 2, :, :] -= 123.68
+    else:
+        # Zero-center by mean pixel
+        x[:, :, :, 0] -= 103.939
+        x[:, :, :, 1] -= 116.779
+        x[:, :, :, 2] -= 123.68
     return x
 
 def deprocess_image_partially(x):
@@ -337,11 +345,6 @@ for q in range(args.phases):
         print('Iteration %d completed in %ds. Loss value: %f' % (iter, time.time() - t2, min_val))
         iter += 1
 
-    if K.image_data_format() == 'channels_first':
-        x = x.reshape((3, img_nrows, img_ncols))
-        x = x.transpose((1, 2, 0))
-    else:
-        x = x.reshape((img_nrows, img_ncols, 3))
     print(x.shape)
     img = deprocess_image(x.copy())
     fname = args.target_image_prefix + '_after_pass%d.png' % q
