@@ -9,16 +9,22 @@ Script Usage:
 
     # Example:
     ```
-    python neural_doodle.py --style-image Wall.png \
-    --target-image-prefix generated/wall
+    python neural_gen.py --style-image Wall_512.jpg --iterations 10 --phases 4 \
+        --target-image-prefix generated/Wall
     ```
 
-Base on:
-[Dmitry Ulyanov's blog on fast-neural-doodle](http://dmitryulyanov.github.io/feed-forward-neural-doodle/)
-[Torch code for fast-neural-doodle](https://github.com/DmitryUlyanov/fast-neural-doodle)
-[Torch code for online-neural-doodle](https://github.com/DmitryUlyanov/online-neural-doodle)
-[Paper Texture Networks: Feed-forward Synthesis of Textures and Stylized Images](http://arxiv.org/abs/1603.03417)
-[Discussion on parameter tuning](https://github.com/fchollet/keras/issues/3705)
+See:
+[Gatys, 2015: A Neural Algorithm of Artistic Style](https://arxiv.org/abs/1505.07376)
+[Li 2016: Combining Markov Random Fields and Convolutional Neural Networks for Image Synthesis](https://arxiv.org/abs/1601.04589)
+[Risser, 2017: Stable and Controllable Neural Texture Synthesis and Style Transfer Using Histogram Losses](https://arxiv.org/abs/1701.08893)
+
+Implementation details:
+* https://github.com/fchollet/keras/blob/master/examples/neural_doodle.py
+* https://github.com/alexjc/neural-doodle
+* https://github.com/dsanno/chainer-neural-style
+* https://github.com/awentzonline/image-analogies
+[Picking an optimizer for Style Transfer: L-BFGS vs SGD](https://medium.com/slavv/picking-an-optimizer-for-style-transfer-86e7b8cba84b)
+[Discussion on parameter tuning for Keras style transfer example](https://github.com/fchollet/keras/issues/3705)
 '''
 from __future__ import print_function
 import time
@@ -38,16 +44,15 @@ import custom_vgg19
 parser = argparse.ArgumentParser(description='Keras neural doodle example')
 add_arg = parser.add_argument
 add_arg('--style-image',            type=str,                       help='Path to image to learn style from')
+add_arg('--style-layers',           default='1_1,2_1,3_1,4_1,5_1',type=str,help='VGG layers to learn style from')
 add_arg('--prime-image',            default=None, type=str,         help='Path to image to prime optimization')
+add_arg('--seed-range',             default='16:240', type=str,     help='Prime with random colors chosen in range, e.g. 0:255.')
 add_arg('--target-image-prefix',    type=str,                       help='Path prefix for generated results')
 add_arg('--target-size',            default=None, type=str,         help='Size of the output image, e.g. 512x512.')
-add_arg('--iterations',             default=50, type=int,           help='Number of iterations to run each resolution.')
-add_arg('--seed-range',             default='16:240', type=str,     help='Random colors chosen in range, e.g. 0:255.')
-add_arg('--phases',                 default=3, type=int,            help='Number of image scales to process in phases.')
-add_arg('--variation',              default=50, type=float,         help='TODO')
-add_arg('--loss',                   default='gramm', type=str,      help='TODO')
-add_arg('--style-layers',           default='1_1,2_1,3_1,4_1,5_1',
-                                                     type=str, help='TODO')
+add_arg('--phases',                 default=3, type=int,            help='Number of steps in texture pyramid.')
+add_arg('--iterations',             default=50, type=int,           help='Number of iterations to run each phase/resolution.')
+add_arg('--variation',              default=50, type=float,         help='Weight of total variational loss')
+add_arg('--loss',                   default='gramm', type=str,      help='Loss function to use for optimization')
 args = parser.parse_args()
 
 num_iterations = args.iterations
