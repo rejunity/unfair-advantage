@@ -44,7 +44,7 @@ import custom_vgg19
 parser = argparse.ArgumentParser(description='Keras neural doodle example')
 add_arg = parser.add_argument
 add_arg('--style-image',            type=str,                       help='Path to image to learn style from')
-add_arg('--style-layers',           default='1_1,2_1,3_1,4_1,5_1',type=str,help='VGG layers to learn style from')
+add_arg('--style-layers',           default='1,2,3,4,5', type=str,  help='VGG layers to learn style from')
 add_arg('--prime-image',            default=None, type=str,         help='Path to image to prime optimization')
 add_arg('--seed-range',             default='16:240', type=str,     help='Prime with random colors chosen in range, e.g. 0:255.')
 add_arg('--target-image-prefix',    type=str,                       help='Path prefix for generated results')
@@ -72,6 +72,7 @@ if args.style_layers is None:
 else:
     for layer in args.style_layers.split(','):
         layer_indices = [int(i) for i in layer.split('_')]
+        layer_indices.append(1)
         style_feature_layers.append('block%d_conv%d' % (layer_indices[0], layer_indices[1]))
 
 # index constants for input images to VGG net 
