@@ -52,7 +52,7 @@ add_arg('--target-size',            default=None, type=str,         help='Size o
 add_arg('--phases',                 default=3, type=int,            help='Number of steps in texture pyramid.')
 add_arg('--iterations',             default=50, type=int,           help='Number of iterations to run each phase/resolution.')
 add_arg('--variation',              default=50, type=float,         help='Weight of total variational loss')
-add_arg('--loss',                   default='gramm', type=str,      help='Loss function to use for optimization')
+add_arg('--loss',                   default='gram', type=str,       help='Loss function to use for optimization')
 add_arg('--loss-arg',               default=1.0, type=float,        help='Arbitrary argument to Loss function')
 args = parser.parse_args()
 
@@ -232,7 +232,7 @@ def gram_matrix(x, s):
     gram = K.dot(features, K.transpose(features))
     return gram
 
-def gramm_loss(style_image, output_image):
+def gram_loss(style_image, output_image):
     '''Calculate style loss between style_image and output_image
     '''
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
@@ -250,7 +250,7 @@ def gramm_loss(style_image, output_image):
     c = gram_matrix(output) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
 
-def gramm_offset_loss(style_image, output_image, offset):
+def gram_offset_loss(style_image, output_image, offset):
     '''Calculate style loss between style_image and output_image
     '''
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
@@ -268,8 +268,8 @@ def gramm_offset_loss(style_image, output_image, offset):
     c = gram_matrix(output, offset) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
 
-def gramm_sqrt_loss(style_image, output_image):
-    return K.sqrt(gramm_loss(style_image, output_image))
+def gram_sqrt_loss(style_image, output_image):
+    return K.sqrt(gram_loss(style_image, output_image))
 
 def L2_loss(style_image, output_image):
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
@@ -322,9 +322,9 @@ def stat_loss(style_image, output_image, n):
             output_image, (2, 0, 1))
         num_channels = K.shape(style_image)[-1]
 
-    #return K.sum(K.square(K.mean(style, axis=(1,2)) - K.mean(output, axis=(1,2)))) + gramm_loss(style_image, output_image)
+    #return K.sum(K.square(K.mean(style, axis=(1,2)) - K.mean(output, axis=(1,2)))) + gram_loss(style_image, output_image)
     return K.sum(K.square(moment(style, n, axis=(1,2)) - moment(output, n, axis=(1,2))))
-    #return K.mean(K.square(K.mean(style, axis=(1,2)) - K.mean(output, axis=(1,2)))) + K.mean(K.square(K.std(style, axis=(1,2)) - K.std(output, axis=(1,2)))) + gramm_loss(style_image, output_image)
+    #return K.mean(K.square(K.mean(style, axis=(1,2)) - K.mean(output, axis=(1,2)))) + K.mean(K.square(K.std(style, axis=(1,2)) - K.std(output, axis=(1,2)))) + gram_loss(style_image, output_image)
 
 def nstat_loss(style_image, output_image, n):
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
@@ -361,7 +361,7 @@ def moments_loss(style_image, output_image, number_of_moments):
         loss += K.mean(K.square(s - c))
     #loss /= number_of_moments
 
-    loss += gramm_loss(style_image, output_image)
+    loss += gram_loss(style_image, output_image)
 
     return loss
 
@@ -369,16 +369,16 @@ def histogram_loss(style_image, output_image):
     return 0
 
 def style_loss(style_image, output_image):
-    if args.loss=='gramm':
-        return gramm_loss(style_image, output_image)
-    elif args.loss=='gramm_offset':
-        return gramm_offset_loss(style_image, output_image, args.loss_arg)
+    if args.loss=='gram':
+        return gram_loss(style_image, output_image)
+    elif args.loss=='gram_offset':
+        return gram_offset_loss(style_image, output_image, args.loss_arg)
     elif args.loss=='stat':
         return stat_loss(style_image, output_image, args.loss_arg)
     elif args.loss=='nstat':
         return nstat_loss(style_image, output_image, args.loss_arg)
-    elif args.loss=='gramm_sqrt':
-        return gramm_sqrt_loss(style_image, output_image)
+    elif args.loss=='gram_sqrt':
+        return gram_sqrt_loss(style_image, output_image)
     elif args.loss=='L2' or args.loss=='copy':
         return L2_loss(style_image, output_image)
     elif args.loss=='moments':
@@ -386,7 +386,7 @@ def style_loss(style_image, output_image):
     elif args.loss=='mrf':
         return mrf_loss(style_image, output_image)
     else:
-        return gramm_loss(style_image, output_image)
+        return gram_loss(style_image, output_image)
 
 def total_variation_loss(x):
     assert 4 == K.ndim(x)
