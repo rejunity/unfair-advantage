@@ -53,6 +53,7 @@ add_arg('--phases',                 default=3, type=int,            help='Number
 add_arg('--iterations',             default=50, type=int,           help='Number of iterations to run each phase/resolution.')
 add_arg('--variation',              default=50, type=float,         help='Weight of total variational loss')
 add_arg('--loss',                   default='gramm', type=str,      help='Loss function to use for optimization')
+add_arg('--loss-arg',               default=1.0, type=float,        help='Arbitrary argument to Loss function')
 args = parser.parse_args()
 
 num_iterations = args.iterations
@@ -225,9 +226,9 @@ def mrf_loss(source, combination, patch_size=3, patch_stride=1):
     return loss
 
 # Define loss functions
-def gram_matrix(x):
+def gram_matrix(x, s):
     assert K.ndim(x) == 3
-    features = K.batch_flatten(x)
+    features = K.batch_flatten(x) + s
     gram = K.dot(features, K.transpose(features))
     return gram
 
@@ -249,6 +250,27 @@ def gramm_loss(style_image, output_image):
     c = gram_matrix(output) / K.cast(num_channels, K.floatx())
     return K.mean(K.square(s - c))
 
+def gramm_offset_loss(style_image, output_image, offset):
+    '''Calculate style loss between style_image and output_image
+    '''
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
+    if K.image_data_format() == 'channels_first':
+        style = style_image
+        output = output_image
+        num_channels = K.shape(style_image)[0]
+    else:
+        style = K.permute_dimensions(
+            style_image, (2, 0, 1))
+        output = K.permute_dimensions(
+            output_image, (2, 0, 1))
+        num_channels = K.shape(style_image)[-1]
+    s = gram_matrix(style, offset) / K.cast(num_channels, K.floatx())
+    c = gram_matrix(output, offset) / K.cast(num_channels, K.floatx())
+    return K.mean(K.square(s - c))
+
+def gramm_sqrt_loss(style_image, output_image):
+    return K.sqrt(gramm_loss(style_image, output_image))
+
 def L2_loss(style_image, output_image):
     assert 3 == K.ndim(style_image) == K.ndim(output_image)
     s = K.batch_flatten(style_image)
@@ -256,8 +278,92 @@ def L2_loss(style_image, output_image):
     return K.sum(K.square(s - c))
 
 # TODO: moments and histogram losses, compare them
-def moments_loss(style_image, output_image):
-    return 0
+
+def var(x, axis=None, keepdims=False):
+    # compute the axis-wise mean
+    mean_input = K.mean(x, axis=axis, keepdims=True)
+
+    # center the x
+    centered_input = x - mean_input
+
+    # return the mean sqr
+    two = K.constant(2, dtype=centered_input.dtype)
+    v = K.mean((centered_input ** two), axis=axis, keepdims=keepdims)
+    return v
+
+def moment(x, n, axis=None, keepdims=False):
+    # compute the axis-wise mean
+    m0 = K.mean(x, axis=axis, keepdims=True)
+
+    # center the x
+    c = x - m0
+
+    # return the mean pow^n
+    exp = K.constant(n, dtype=c.dtype)
+    mn = K.mean((c ** exp), axis=axis, keepdims=keepdims)
+    return mn
+
+def moment_norm(x, n, axis=None, keepdims=False):
+    v = K.var(x, axis=axis, keepdims=keepdims)
+    v = K.maximum(K.abs(v), K.epsilon())
+    norm = K.pow(v, n / 2.0)
+    return moment(x, n, axis=axis, keepdims=keepdims) / norm
+
+def stat_loss(style_image, output_image, n):
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
+    if K.image_data_format() == 'channels_first':
+        style = style_image
+        output = output_image
+        num_channels = K.shape(style_image)[0]
+    else:
+        style = K.permute_dimensions(
+            style_image, (2, 0, 1))
+        output = K.permute_dimensions(
+            output_image, (2, 0, 1))
+        num_channels = K.shape(style_image)[-1]
+
+    #return K.sum(K.square(K.mean(style, axis=(1,2)) - K.mean(output, axis=(1,2)))) + gramm_loss(style_image, output_image)
+    return K.sum(K.square(moment(style, n, axis=(1,2)) - moment(output, n, axis=(1,2))))
+    #return K.mean(K.square(K.mean(style, axis=(1,2)) - K.mean(output, axis=(1,2)))) + K.mean(K.square(K.std(style, axis=(1,2)) - K.std(output, axis=(1,2)))) + gramm_loss(style_image, output_image)
+
+def nstat_loss(style_image, output_image, n):
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
+    if K.image_data_format() == 'channels_first':
+        style = style_image
+        output = output_image
+        num_channels = K.shape(style_image)[0]
+    else:
+        style = K.permute_dimensions(
+            style_image, (2, 0, 1))
+        output = K.permute_dimensions(
+            output_image, (2, 0, 1))
+        num_channels = K.shape(style_image)[-1]
+
+    return K.sum(K.square(moment_norm(style, n, axis=(1,2)) - moment_norm(output, n, axis=(1,2))))
+
+def moments_loss(style_image, output_image, number_of_moments):
+    assert 3 == K.ndim(style_image) == K.ndim(output_image)
+    if K.image_data_format() == 'channels_first':
+        style = style_image
+        output = output_image
+        num_channels = K.shape(style_image)[0]
+    else:
+        style = K.permute_dimensions(
+            style_image, (2, 0, 1))
+        output = K.permute_dimensions(
+            output_image, (2, 0, 1))
+        num_channels = K.shape(style_image)[-1]
+
+    loss = K.variable(0)
+    for n in range(number_of_moments):
+        s = moment_norm(style, n)
+        c = moment_norm(output, n)
+        loss += K.mean(K.square(s - c))
+    #loss /= number_of_moments
+
+    loss += gramm_loss(style_image, output_image)
+
+    return loss
 
 def histogram_loss(style_image, output_image):
     return 0
@@ -265,8 +371,18 @@ def histogram_loss(style_image, output_image):
 def style_loss(style_image, output_image):
     if args.loss=='gramm':
         return gramm_loss(style_image, output_image)
+    elif args.loss=='gramm_offset':
+        return gramm_offset_loss(style_image, output_image, args.loss_arg)
+    elif args.loss=='stat':
+        return stat_loss(style_image, output_image, args.loss_arg)
+    elif args.loss=='nstat':
+        return nstat_loss(style_image, output_image, args.loss_arg)
+    elif args.loss=='gramm_sqrt':
+        return gramm_sqrt_loss(style_image, output_image)
     elif args.loss=='L2' or args.loss=='copy':
         return L2_loss(style_image, output_image)
+    elif args.loss=='moments':
+        return moments_loss(style_image, output_image, int(args.loss_arg))
     elif args.loss=='mrf':
         return mrf_loss(style_image, output_image)
     else:
