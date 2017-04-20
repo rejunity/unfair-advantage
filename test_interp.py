@@ -30,10 +30,6 @@ def searchsorted(sorted_array, values_to_search):
     # use broadcasting to achieve all permutations between [sorted_array] x [values_to_search]
     # result is tensor with dimensions: [values_to_search.shape[0], sorted_array.shape[0]]
 
-    # analogous, but faster than:
-    # search_for = tf.tile(tf.expand_dims(values_to_search, axis=0), [tf.shape(sorted_array)[0], 1])
-    # search_in = tf.tile(tf.expand_dims(sorted_array, axis=1), [1, tf.shape(values_to_search)[0]])
-
     # mask out values that are greater than the value we are looking for
     mask = tf.greater_equal(values_to_search, tf.expand_dims(sorted_array, axis=1))
 
@@ -92,14 +88,14 @@ def searchsortedT(sorted_array, values_to_search):
     from tensorflow.python.ops import array_ops
     from tensorflow.python.ops import control_flow_ops
     
-    indices = array_ops.zeros_like(values_to_search, dtype=tf.int32)        
+    indices = array_ops.zeros_like(values_to_search, dtype=tf.float32)        
     n = array_ops.shape(sorted_array)[0]
     
     def take_branch(n, indices):
         n = n / 2
         idxL = indices 
-        idxR = indices + n
-        pred = tf.less(values_to_search, tf.gather(sorted_array, idxR))
+        idxR = indices + tf.to_float(n)
+        pred = tf.less(values_to_search, tf.gather(sorted_array, tf.to_int32(idxR)))
         indices = tf.where(pred, idxL, idxR)
         return [n, indices]
 
@@ -113,26 +109,8 @@ def searchsortedT(sorted_array, values_to_search):
 def searchsortedN(sorted_array, values_to_search, n):
     from tensorflow.python.ops import array_ops
     
-    indices = array_ops.zeros_like(values_to_search, dtype=tf.int32)
-    
-    while n > 1:
-        n = n / 2
-
-        idxL = indices
-        idxR = indices + n
-
-        pred = tf.less(values_to_search, tf.gather(sorted_array, idxR))
-        indices = tf.where(pred, idxL, idxR)
-
-    pred = tf.less(values_to_search, sorted_array[0])
-    indices = tf.where(pred, indices, indices + 1)
-    return indices
-
-def searchsortedNF(sorted_array, values_to_search, n):
-    from tensorflow.python.ops import array_ops
-    
-    #indices = array_ops.zeros_like(values_to_search, dtype=tf.int32)
     indices = array_ops.zeros_like(values_to_search, dtype=tf.float32)
+    n = int(n)
     
     while n > 1:
         n = n / 2
@@ -158,9 +136,9 @@ def interp_linear(x_new, x, y, nbins):
     # would be inserted.
     # Note: If x_new[n] == x[m], then m is returned by searchsorted.
 
-    x_new_indices = searchsortedNF(x, x_new, nbins)
+    #x_new_indices = searchsortedN(x, x_new, nbins)
     #x_new_indices = searchsortedT(x, x_new)
-    #x_new_indices = searchsorted(x, x_new)
+    x_new_indices = searchsorted(x, x_new)
     #x_new_indices = tf.py_func(np.searchsorted, [x, x_new], tf.int64, stateful=False)
     #x_new_indices = xx_new_indices
 
@@ -203,10 +181,54 @@ def interp_linear(x_new, x, y, nbins):
 
     return y_new
 
-TRACE=True
 
-n = 1024
-steps = 10240000
+# bins: 1024, steps: 1024
+# np            - 0.000018s
+# searchsorted  - 0.000496s *
+# searchsortedN - 0.000980s *
+# searchsortedT - 0.001045s *
+# * <- bottlenecked by feeding tasks to GPU (according to timeline graph)
+
+# bins: 1024, steps: 10240
+# np            - 0.000058s
+# searchsorted  - 0.001481s !
+# searchsortedN - 0.001066s *
+# searchsortedT - 0.001087s *
+# * <- bottlenecked by feeding tasks to GPU
+# ! <- somewhat bottlenecked by feeding tasks to GPU
+
+# bins: 1024, steps: 102400
+# np            - 0.000484s
+# data xfer     -             0.082ms+0.062ms=
+# searchsorted  - 0.012689s
+# searchsortedN - 0.001066s !
+# ! <- somewhat bottlenecked by feeding tasks to GPU
+
+# bins: 1024, steps: 1024000
+# np            - 0.004236s
+# data xfer     -             0.643ms+0.617ms=
+# searchsorted  - 0.128820s
+# searchsortedN - 0.006240s | 5.024ms
+# searchsortedT - 0.006765s | 5.142ms
+
+
+# bins: 16, steps: 10240
+# np            - 0.000047s
+# searchsorted  - 0.000570s !
+# ! <- somewhat bottlenecked by feeding tasks to GPU
+
+# bins: 16, steps: 1024000
+# np            - 0.004024s
+# data xfer     -             0.643ms+0.617ms=
+# searchsorted  - 0.005968s | 4.199ms
+# searchsortedN - 0.005213s | 3.784ms
+# searchsortedT - 0.005530s | 3.818ms
+
+
+TRACE=False  
+
+n = 256
+steps = 256
 xs = np.linspace(0.0, n, num=n)
 #xs = np.concatenate(([0.0, 0.0, 0.0], xs))
 ys = np.sin(xs)
@@ -214,13 +236,8 @@ new_xs = np.linspace(-1.0, n+1.0, num=steps)
 
 t0 = time.time()
 new_ys = np.interp(new_xs, xs, ys)
-#res = np.mean(new_ys)
 t1 = time.time()
-#print(res)
 print('Numpy run in %fs' % (t1-t0))
-
-idx = np.searchsorted(xs, new_xs, side='left').astype(np.int32)
-print(idx)
 
 with tf.Session() as sess:
 
@@ -230,24 +247,34 @@ with tf.Session() as sess:
     a = tf.placeholder(tf.float32)
     b = tf.placeholder(tf.float32)
     c = tf.placeholder(tf.float32)
-    #d = tf.placeholder(tf.int32)
-    #a = tf.constant(new_xs) # using constant here makes sess.run() roughly x10 slower! :(
+    #a = tf.constant(new_xs) # using constant here makes sess.run() run slower!
     #b = tf.constant(xs)
     #c = tf.constant(ys)
-    #d = tf.constant(idx)
 
     if TRACE:
         run_metadata = tf.RunMetadata()
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
 
-    for i in range(3):
+    for i in range(5):
         t0 = time.time()
-        if i > 0 and TRACE:
-            res = sess.run(interp_linear(a,b,c,len(xs)), run_metadata=run_metadata, options=run_options, feed_dict={a: new_xs, b: xs, c: ys})
-        else:
-            res = sess.run(interp_linear(a,b,c,len(xs)), feed_dict={a: new_xs, b: xs, c: ys})
+        runnable = interp_linear(a,b,c,len(xs))
+        feed = {a: new_xs, b: xs, c: ys}
         t1 = time.time()
-        print('Tensorflow run in %fs' % (t1-t0))
+        print('Runnable prepared in %fs' % (t1-t0))
+
+        if i == 1 and TRACE:
+            t0 = time.time()
+            res = sess.run(runnable, run_metadata=run_metadata, options=run_options, feed_dict=feed)
+            t1 = time.time()
+            print('Trace run in %fs' % (t1-t0))
+        else:
+            t0 = time.time()            
+            h = sess.partial_run_setup(runnable, [a,b,c])
+
+            t1 = time.time()
+            res = sess.partial_run(h, runnable, feed_dict=feed)
+            t2 = time.time()
+            print('Tensorflow prepared in %fs & run in %fs' % (t1-t0, t2-t1))
 
     '''print(len(xs))
     print(xs)
