@@ -44,11 +44,48 @@ def searchsorted(sorted_array, values_to_search):
     indices = tf.reduce_sum(mask, axis=0)
     return indices
 
-def searchsorted2(sorted_array, values_to_search):
-    mask = tf.less(tf.expand_dims(sorted_array, axis=1), values_to_search)
+
+''' prev impls
+def searchsorted(sorted_array, values_to_search):
+    search_for = tf.tile(tf.expand_dims(values_to_search, axis=0), [tf.shape(sorted_array)[0], 1])
+    search_in = tf.tile(tf.expand_dims(sorted_array, axis=1), [1, tf.shape(values_to_search)[0]])
+    mask = tf.to_int32(tf.less(search_in, search_for))
     mask = tf.to_float(mask)
     indices = tf.reduce_sum(mask, axis=0)
     return indices
+
+def searchsorted(sorted_array, values_to_search):
+    search_for, search_in = tf.meshgrid(values_to_search, sorted_array)
+    mask = tf.to_int32(tf.less(search_in, search_for))
+    indices = tf.cumsum(mask)
+    shape = tf.shape(indices)
+    indices = tf.squeeze(tf.slice(indices, [shape[0]-1,0], [1, shape[1]]))
+    return indices - 1
+
+def searchsorted(sorted_array, values_to_search):
+    from tensorflow.python.ops import array_ops
+
+    zeros = array_ops.zeros_like(values_to_search, dtype=tf.int32)
+    ones = array_ops.ones_like(values_to_search)
+
+    fn = lambda a, x: tf.where(tf.less(ones * x, values_to_search), a + 1, a)
+    indices = tf.foldl(fn, sorted_array, initializer=zeros, parallel_iterations=1, back_prop=False)
+
+    return indices - 1
+
+def searchsorted(sorted_array, values_to_search):
+    from tensorflow.python.ops import array_ops
+
+    zeros_i32 = array_ops.zeros_like(values_to_search, dtype=tf.int32)
+    ones_i32 = array_ops.zeros_like(values_to_search, dtype=tf.int32)
+    ones = array_ops.ones_like(values_to_search)
+
+    #fn = lambda a, x: a + tf.where(tf.less(ones * x, values_to_search), ones_i32, zeros_i32)
+    fn = lambda a, x: a + tf.where(tf.greater(values_to_search, x), zeros_i32, ones_i32)
+    indices = tf.foldl(fn, sorted_array, initializer=zeros_i32, back_prop=False)
+
+    return indices
+'''
 
 # takes more memory than searchsortedN
 def searchsortedT(sorted_array, values_to_search):
