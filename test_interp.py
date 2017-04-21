@@ -199,14 +199,14 @@ def interp_linear(x_new, x, y, nbins):
 
 # bins: 1024, steps: 102400
 # np            - 0.000484s
-# data xfer     -             0.082ms+0.062ms=
+# data xfer     -             0.082ms+0.062ms = 0.144ms
 # searchsorted  - 0.012689s
 # searchsortedN - 0.001066s !
 # ! <- somewhat bottlenecked by feeding tasks to GPU
 
 # bins: 1024, steps: 1024000
 # np            - 0.004236s
-# data xfer     -             0.643ms+0.617ms=
+# data xfer     -             0.643ms+0.617ms = 1.260ms
 # searchsorted  - 0.128820s
 # searchsortedN - 0.006240s | 5.024ms
 # searchsortedT - 0.006765s | 5.142ms
@@ -219,7 +219,7 @@ def interp_linear(x_new, x, y, nbins):
 
 # bins: 16, steps: 1024000
 # np            - 0.004024s
-# data xfer     -             0.643ms+0.617ms=
+# data xfer     -             0.643ms+0.617ms = 1.260ms (~2*15.6MB => 23GB/s)
 # searchsorted  - 0.005968s | 4.199ms
 # searchsortedN - 0.005213s | 3.784ms
 # searchsortedT - 0.005530s | 3.818ms
