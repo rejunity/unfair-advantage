@@ -82,7 +82,7 @@ def histogram_fixed_width(values, value_range, nbins=100):
     indices = math_ops.cast(
         clip_ops.clip_by_value(indices, 0, nbins_float - 1), dtypes.int32)
 
-    #counts = tf.Variable(array_ops.ones_like(indices, dtype=dtypes.int32))
+    #counts = tf.Variable(...) <= array_ops.zeros_like(indices, dtype=dtypes.int32))
     #return tf.scatter_add(counts, indices, array_ops.ones_like(indices, dtype=dtypes.int32)), indices
 
     return math_ops.unsorted_segment_sum(
