@@ -92,9 +92,14 @@ def histogram_fixed_width(values, value_range, nbins=100):
 
 def feature_histogram_matching(source, template, value_range, nbins):
 
-    s_counts, indices = histogram_fixed_width(source, value_range, nbins)
-    t_counts, _ = histogram_fixed_width(template, value_range, nbins)
-    t_values = tf.linspace(value_range[0], value_range[1], nbins)
+    s_value_range = [tf.reduce_min(source), tf.reduce_max(source)]
+    t_value_range = [tf.reduce_min(template), tf.reduce_max(template)]
+    #s_value_range = value_range
+    #t_value_range = value_range
+    t_values = tf.linspace(t_value_range[0], t_value_range[1], nbins)
+
+    s_counts, indices = histogram_fixed_width(source, s_value_range, nbins)
+    t_counts, _ = histogram_fixed_width(template, t_value_range, nbins)
 
     s_cdf = tf.to_float(s_counts)
     s_cdf = tf.cumsum(s_cdf)
@@ -109,15 +114,28 @@ def feature_histogram_matching(source, template, value_range, nbins):
     values = tf.gather(interp_t_values, indices)
     return values
 
+def histogram_matching(source, template, value_range, nbins):
+    def wrap_feature_histogram_matching(x, template):
+        return feature_histogram_matching(x, template, value_range, nbins)
+
+    def map(fn, arrays, dtype=tf.float32):
+        # assumes all arrays have same leading dim
+        indices = tf.range(tf.shape(arrays[0])[0])
+        out = tf.map_fn(lambda ii: fn(*[array[ii] for array in arrays]), indices, dtype=dtype, back_prop=False)
+        return out
+
+    return map(wrap_feature_histogram_matching, [source, template])
+
+
 def np_feature_histogram_matching(source, template, value_range, nbins):
     source = source.flatten()
     template = template.flatten()
 
-    indices = np.digitize(source, range(nbins-1), right=True)
-    s_counts = np.bincount(indices, minlength=nbins)
-    t_counts = np.bincount(np.digitize(template, range(nbins-1), right=True), minlength=nbins)
-    t_values = np.linspace(value_range[0], value_range[1], nbins)
+    #source = np.clip(source, value_range[0], value_range[1], source)
+    #template = np.clip(template, value_range[0], value_range[1], template)
 
+    s_values, indices, s_counts = np.unique(source, return_inverse=True, return_counts=True)
+    t_values, t_counts = np.unique(template, return_counts=True)
 
     s_cdf = np.cumsum(s_counts).astype(np.float32)
     s_cdf /= s_cdf[-1]
@@ -129,17 +147,90 @@ def np_feature_histogram_matching(source, template, value_range, nbins):
     interp_t_values = np.maximum(interp_t_values, 0.0)
     return interp_t_values[indices]
 
+def np_feature_histogram_matching2(source, template, value_range, nbins):
+    source = source.flatten()
+    template = template.flatten()
+
+    s_value_range = [np.min(source), np.max(source)]
+    t_value_range = [np.min(template), np.max(template)]
+
+    #source = np.clip(source, value_range[0], value_range[1], source)
+    #template = np.clip(template, value_range[0], value_range[1], template)
+    s_values = np.linspace(s_value_range[0], s_value_range[1], nbins)
+    t_values = np.linspace(t_value_range[0], t_value_range[1], nbins)
+
+    indices = np.digitize(source, s_values[0:-1])
+    s_counts = np.bincount(indices, minlength=nbins)
+    t_counts = np.bincount(np.digitize(template, t_values[0:-1]), minlength=nbins)
+
+    s_cdf = np.cumsum(s_counts).astype(np.float32)
+    s_cdf /= s_cdf[-1]
+
+    t_cdf = np.cumsum(t_counts).astype(np.float32)
+    t_cdf /= t_cdf[-1]
+
+    print(s_cdf, t_cdf, t_values)
+    interp_t_values = np.interp(s_cdf, t_cdf, t_values).astype(np.float32)
+    interp_t_values = np.maximum(interp_t_values, 0.0)
+    return interp_t_values[indices]
+
+def report_feature_histogram(source, template, value_range, nbins):
+    source = source.flatten()
+    template = template.flatten()
+
+    s_value_range = [np.min(source), np.max(source)]
+    t_value_range = [np.min(template), np.max(template)]
+
+    #source = np.clip(source, value_range[0], value_range[1], source)
+    #template = np.clip(template, value_range[0], value_range[1], template)
+    s_values = np.linspace(s_value_range[0], s_value_range[1], nbins)
+    t_values = np.linspace(t_value_range[0], t_value_range[1], nbins)
+
+    indices = np.digitize(source, s_values[0:-1])
+    s_counts = np.bincount(indices, minlength=nbins)
+    t_counts = np.bincount(np.digitize(template, t_values[0:-1]), minlength=nbins)
+
+    #print(s_counts)
+    #print(t_counts)
+    print(s_counts - t_counts)
+    return source
+
+def np_histogram_matching(fn, source, template, value_range, nbins):
+    o = []
+    for s, t in zip(source, template):
+        o.append(fn(s, t, value_range, nbins))
+
+    return np.reshape(np.concatenate(o), np.shape(source))
+
+def preproc_image(x):
+    x = x.swapaxes(0,2) # cyx
+    x = x.swapaxes(1,2) # cxy
+    x = np.reshape(x, [np.shape(x)[0], x.size/np.shape(x)[0]]) # cflat
+    print(np.shape(x))
+    return x
+
+def deproc_image(x):
+    x = x.swapaxes(0,1)
+    return x
 
 TRACE=True
 
 
-img = imread("../dev/Wall_512.jpg")
-template = imread("../dev/StoneWall_512.png")
-value_range = [0.0, 255.0]
-n = 256
+img = imread("../dev/Wall_512.jpg", mode='RGB')
+shape = np.shape(img)
+template = imread("../dev/StoneWall_512.png", mode='RGB')
+#template = imread("../dev/Wall_512.jpg", mode='RGB')
+
+img = preproc_image(img)
+template = preproc_image(template)
+
+value_range = [0.0, 256.0]
+n = 4096
 
 t0 = time.time()
-new_img = np_feature_histogram_matching(img, template, value_range, n)
+new_img = np_histogram_matching(np_feature_histogram_matching, img, template, value_range, n)
+print(np.shape(new_img))
+new_img2 = np_histogram_matching(np_feature_histogram_matching2, img, template, value_range, n)
 t1 = time.time()
 print('Numpy run in %fs' % (t1-t0))
 
@@ -161,7 +252,7 @@ with tf.Session() as sess:
 
     for i in range(5):
         t0 = time.time()
-        runnable = feature_histogram_matching(a,b,c,n)
+        runnable = histogram_matching(a,b,c,n)
         feed = {a: img, b: template, c: value_range}
         t1 = time.time()
         print('Runnable prepared in %fs' % (t1-t0))
@@ -180,12 +271,17 @@ with tf.Session() as sess:
             t2 = time.time()
             print('Tensorflow prepared in %fs & run in %fs' % (t1-t0, t2-t1))
 
-    new_img = new_img.flatten()
-    res = res.flatten()
+    a = new_img.flatten()
+    #b = new_img2.flatten()
+    b = res.flatten()
 
     print("bins: %d" % (n))
-    print("total error: %f" % np.sum(np.square(new_img - res)))
-    print("max error: %f" % np.max(np.abs(new_img - res)))
+    print("total error: %f" % np.sum(np.square(a - b)))
+    print("max error: %f" % np.max(np.abs(a - b)))
+
+    imsave("test_histogram_np.png", np.reshape(deproc_image(new_img), shape))
+    imsave("test_histogram_np2.png", np.reshape(deproc_image(new_img2), shape))
+    imsave("test_histogram_tf.png", np.reshape(deproc_image(res), shape))
 
     if TRACE:
         # Create the Timeline object, and write it to a json
@@ -193,3 +289,5 @@ with tf.Session() as sess:
         ctf = tl.generate_chrome_trace_format()
         with open('timeline2.json', 'w') as f:
             f.write(ctf)
+
+        #new_img = np_histogram_matching(report_feature_histogram, new_img, res, value_range, n)
