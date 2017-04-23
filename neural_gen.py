@@ -472,6 +472,11 @@ def histogram_matching(style_image, output_image, nbins):
     mx = K.max(style_image)
 
     # bruteforce search
+    # 8 - 30s
+    # 32 - 30s
+    # 256 - 40s
+    # 512 - 59s
+    # 1024 - 163s
     def searchsorted(sorted_array, values_to_search):
         # example of execution:
         #  sorted_array = [10, 20, 30]
@@ -553,70 +558,88 @@ def histogram_matching(style_image, output_image, nbins):
 
         _, indices = control_flow_ops.while_loop(
             lambda n, indices: n >= 1, take_branch, [n, indices])
+
+        pred = tf.less(values_to_search, sorted_array[0])
+        indices = tf.where(pred, indices, indices + 1)
         return indices
 
+    # 8 - 33s
+    # 32 - 33s
+    # 256 - 44s
+    # 512 - 49s
+    # 1024 - 48s
     def searchsortedN(sorted_array, values_to_search, n):
         from tensorflow.python.ops import array_ops
         
         indices = array_ops.zeros_like(values_to_search, dtype=tf.int32)
         
-        while n > 0:
+        while n > 1:
             n = n / 2
 
-            idxL = indices 
+            idxL = indices
             idxR = indices + n
 
             pred = tf.less(values_to_search, tf.gather(sorted_array, idxR))
             indices = tf.where(pred, idxL, idxR)
+
+        pred = tf.less(values_to_search, sorted_array[0])
+        indices = tf.where(pred, indices, indices + 1)
         return indices
 
     # based on  _call_linear(self, x_new) from https://github.com/scipy/scipy/blob/v0.19.0/scipy/interpolate/interpolate.py
-    def interp_linear(x, y, x_new, nbins):
+    def interp_linear(x_new, x, y, nbins):
         from tensorflow.python.framework import dtypes
         from tensorflow.python.ops import clip_ops
         from tensorflow.python.ops import math_ops
 
-        #x_new_indices = searchsortedN(x, x_new, nbins)
-        #x_new_indices = searchsortedT(x, x_new)
+        # Find where in the orignal data, the values to interpolate
+        # would be inserted.
+        # Note: If x_new[n] == x[m], then m is returned by searchsorted.
+
+        #x_new_indices = searchsortedN(x, x_new, nbins) # off by one
+        #x_new_indices = searchsortedT(x, x_new) # off by one
         x_new_indices = searchsorted(x, x_new)
+        #x_new_indices = tf.py_func(np.searchsorted, [x, x_new], tf.int64, stateful=False)
 
-        lo = x_new_indices
-        hi = x_new_indices + 1
+        lo = x_new_indices - 1
+        hi = x_new_indices
 
-        lo = math_ops.cast(
-            clip_ops.clip_by_value(lo, 0, nbins - 2), dtypes.int32)
+        # Clip indices so that they are within the range
         hi = math_ops.cast(
-            clip_ops.clip_by_value(hi, 1, nbins - 1), dtypes.int32)
+            clip_ops.clip_by_value(hi, 0, nbins-1), dtypes.int32)
+        lo = math_ops.cast(
+            clip_ops.clip_by_value(lo, 0, nbins-1), dtypes.int32)
 
         x_lo = tf.gather(x, lo) #x_lo = x[lo]
         x_hi = tf.gather(x, hi) #x_hi = x[hi]
         y_lo = tf.gather(y, lo) #y_lo = y[lo]
         y_hi = tf.gather(y, hi) #y_hi = y[hi]
 
-        d = (x_hi - x_lo)
-        slope = (y_hi - y_lo) / d
+        # Calculate the slope of regions that each x_new value falls in.
+        dx = (x_hi - x_lo)
+        slope = (y_hi - y_lo) / dx
+
+        # Calculate the actual value for each entry in x_new.
         y_linear = slope*(x_new - x_lo) + y_lo
         y_nearest = y_lo
 
-        p = tf.not_equal(d, 0.0)
+        # Protect against NaN (div-by-zero)
+        p = tf.not_equal(dx, 0.0)
         y_new = tf.where(p, y_linear, y_nearest)
-
-        y_new = y_lo
 
         return y_new
 
     def feature_histogram_matching(source, template, value_range, nbins):
 
-        s_counts, indices = histogram_fixed_width(source, value_range, nbins) #tf.unique_with_counts
-        t_counts, _ = histogram_fixed_width(template, value_range, nbins) #tf.unique_with_counts
-        t_values = tf.linspace(value_range[0], value_range[1], nbins, name="t_values")
-        t_values = tf.to_float(t_values)
+        s_counts, indices = histogram_fixed_width(source, value_range, nbins)
+        t_counts, _ = histogram_fixed_width(template, value_range, nbins)
+        t_values = tf.linspace(value_range[0], value_range[1], nbins)
 
-        s_cdf = tf.cumsum(s_counts, name="s_cdf")
+        s_cdf = tf.cumsum(s_counts)
         s_cdf = tf.to_float(s_cdf)
         s_cdf /= s_cdf[-1]
 
-        t_cdf = tf.cumsum(t_counts, name="t_cdf")
+        t_cdf = tf.cumsum(t_counts)
         t_cdf = tf.to_float(t_cdf)
         t_cdf /= t_cdf[-1]
 
@@ -624,14 +647,11 @@ def histogram_matching(style_image, output_image, nbins):
         # that correspond most closely to the quantiles in the source image
         # interp_t_values = np.interp(s_cdf, t_cdf, t_values)
 
-        s_cdf = K.flatten(s_cdf)
-        t_cdf = K.flatten(t_cdf)
-        t_values = K.flatten(t_values)
-        
         #return interp_and_scatter(s_cdf, t_cdf, t_values, indices, nbins)
         #return tf.py_func(np_interp_and_scatter, [s_cdf, t_cdf, t_values, indices], tf.float32, stateful=False) #np.interp(s_cdf, t_cdf, t_values)
         #interp_t_values = tf.py_func(np_interp, [s_cdf, t_cdf, t_values], tf.float32, stateful=False) #np.interp(s_cdf, t_cdf, t_values)        
         interp_t_values = interp_linear(s_cdf, t_cdf, t_values, nbins)
+        interp_t_values = tf.maximum(interp_t_values, 0.0)
         values = tf.gather(interp_t_values, indices)
         return values
 
@@ -648,42 +668,106 @@ def histogram_matching(style_image, output_image, nbins):
     return map(wrap_feature_histogram_matching, [output_image, style_image])
     #return tf.map_fn(wrap_feature_histogram_matching, style_image)
 
+# based on http://stackoverflow.com/a/33047048/7873678
 def np_histogram_matching(style_image, output_image, nbins):
     import tensorflow as tf
     
     mn = K.min(style_image)
     mx = K.max(style_image)
 
-    def np_interp(s_cdf, t_cdf, t_values):
-        return np.interp(s_cdf, t_cdf, t_values).astype(np.float32)
-
     def feature_histogram_matching(source, template, value_range, nbins):
-        s_counts, indices = histogram_fixed_width(source, value_range, nbins) #tf.unique_with_counts
-        t_counts, _ = histogram_fixed_width(template, value_range, nbins) #tf.unique_with_counts
-        t_values = tf.linspace(value_range[0], value_range[1], nbins, name="t_values")
-        t_values = tf.to_float(t_values)
 
-        s_cdf = tf.cumsum(s_counts, name="s_cdf")
-        s_cdf = tf.to_float(s_cdf)
+        #print(np.shape(source))
+        #print(np.shape(template))
+        source = source.flatten()
+        template = template.flatten()
+        #_, indices, s_counts = np.unique(source, return_inverse=True, return_counts=True)
+        #t_values, t_counts = np.unique(template, return_counts=True)
+
+        #s_counts, indices = histogram_fixed_width(source, value_range, nbins) #tf.unique_with_counts
+        #t_counts, _ = histogram_fixed_width(template, value_range, nbins) #tf.unique_with_counts
+
+        '''
+        print(np.mean(source))
+        print(np.max(source))
+
+        n = np.max(source)
+        s = np.sqrt((source / n))
+        s *= n
+        print(np.mean(s))
+        print(np.max(s))
+
+        print("---")
+
+        print(np.mean(template))
+        print(np.max(template))
+        n = np.max(template)
+        t = np.sqrt((template / n))
+        t *= n
+        print(np.mean(t))
+        print(np.max(t))
+
+        print("===")
+        print("===")
+        print("===")
+        '''
+
+
+        #print(nbins)
+        #print(len(source))
+        #print(len(template))
+
+        indices = np.digitize(source, range(nbins-1), right=True)
+        s_counts = np.bincount(indices, minlength=nbins)
+        t_counts = np.bincount(np.digitize(template, range(nbins-1), right=True), minlength=nbins)
+        t_values = np.linspace(value_range[0], value_range[1], nbins)
+
+        #print(s_counts)
+        #print(t_counts)
+
+        #print(len(indices))
+        #print(len(s_counts))
+        #print(len(t_counts))
+        #print(len(t_values))
+
+        s_cdf = np.cumsum(s_counts).astype(np.float32)
         s_cdf /= s_cdf[-1]
 
-        t_cdf = tf.cumsum(t_counts, name="t_cdf")
-        t_cdf = tf.to_float(t_cdf)
+        t_cdf = np.cumsum(t_counts).astype(np.float32)
         t_cdf /= t_cdf[-1]
 
-        interp_t_values = tf.py_func(np_interp, [s_cdf, t_cdf, t_values], tf.float32, stateful=False) #np.interp(s_cdf, t_cdf, t_values)        
-        values = tf.gather(interp_t_values, indices)
-        return values
+        interp_t_values = np.interp(s_cdf, t_cdf, t_values).astype(np.float32)
+        interp_t_values = np.maximum(interp_t_values, 0.0)
+        return interp_t_values[indices]
 
     def wrap_feature_histogram_matching(x, template):
-        return feature_histogram_matching(K.flatten(x), K.flatten(template), [tf.to_float(mn), tf.to_float(mx)], nbins)
+        value_range = [tf.to_float(mn), tf.to_float(mx)]
+        return tf.py_func(feature_histogram_matching, [x, template, value_range, nbins], tf.float32, stateful=False)
 
     def map(fn, arrays, dtype=tf.float32):
         # assumes all arrays have same leading dim
         indices = tf.range(tf.shape(arrays[0])[0])
-        out = tf.map_fn(lambda ii: fn(*[array[ii] for array in arrays]), indices, dtype=dtype)
+        out = tf.map_fn(lambda ii: fn(*[array[ii] for array in arrays]), indices, parallel_iterations=1, dtype=dtype)
         return out
 
+
+    def unravel(output_image, style_image, value_range, nbins):
+        #print("unravel")
+        #print(np.shape(output_image))
+        #print(np.shape(style_image))
+        j = None
+        for o, s in zip(output_image, style_image):
+            x = feature_histogram_matching(o, s, value_range, nbins)
+            if isinstance(j, np.ndarray):
+                j = np.concatenate((j, x))
+            else:
+                j = x
+        return j
+
+    value_range = [tf.to_float(mn), tf.to_float(mx)]
+    
+
+    #return tf.py_func(unravel, [output_image, style_image, value_range, nbins], tf.float32, stateful=False)
     return map(wrap_feature_histogram_matching, [output_image, style_image])
 
 
@@ -702,10 +786,11 @@ def histogram_loss(style_image, output_image, nbins):
 
     output_remapped = histogram_matching(style, output, nbins)
     output_remapped = K.stop_gradient(output_remapped)
+    return K.sum(K.square(K.flatten(output_image) - K.flatten(output_remapped)))
 
     a = K.flatten(output_image) / K.cast(num_channels, K.floatx())
     b = K.flatten(output_remapped) / K.cast(num_channels, K.floatx())
-    return K.sum(K.square(a - b)) #* 150.0 + gram_loss(style_image, output_image)
+    return K.sum(K.square(a - b)) #* 0.5 * K.cast(K.shape(output)[0]*K.shape(output)[1], K.floatx()) + gram_loss(style_image, output_image)
     #return K.mean(K.square(s - c)) #+ gram_loss(style_image, output_image)
 
 def np_histogram_loss(style_image, output_image, nbins):
@@ -721,8 +806,12 @@ def np_histogram_loss(style_image, output_image, nbins):
             output_image, (2, 0, 1))
         num_channels = K.shape(style_image)[-1]
 
-    output_remapped = np_histogram_matching(style, output, nbins)
+    #output_remapped = np_histogram_matching(style, output, nbins)
+    #output_remapped = K.stop_gradient(output_remapped)
+
+    output_remapped = histogram_matching(style, output, nbins)
     output_remapped = K.stop_gradient(output_remapped)
+    return K.sum(K.square(K.flatten(output_image) - K.flatten(output_remapped)))
 
     a = K.flatten(output_image) / K.cast(num_channels, K.floatx())
     b = K.flatten(output_remapped) / K.cast(num_channels, K.floatx())
